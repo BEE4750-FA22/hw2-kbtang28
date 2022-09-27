@@ -60,6 +60,8 @@ function calc_mixed_concentration(V0, C0, V1, C1)
 end
 
 function calc_concentrations(x, C0, B0, N0)
+    # returns concentration of DO, CBOD, and NBOD at x assuming initial concentration of C0, B0, N0
+    
     ka = 0.55
     kc = 0.35
     kn = 0.25
@@ -78,22 +80,23 @@ function calc_concentrations(x, C0, B0, N0)
 end
 
 function DO_simulation(E1 = 0, E2 = 0, max_dist = 50)
-    C = zeros(max_dist + 1)
-    B = zeros(max_dist + 1)
-    N = zeros(max_dist + 1)
+    C = zeros(max_dist + 1) # DO concentration
+    B = zeros(max_dist + 1) # CBOD concentration
+    N = zeros(max_dist + 1) # NBOD concentration
 
     C[1] = calc_mixed_concentration(1e5, 7.5, 1e4, 5)
     B[1] = calc_mixed_concentration(1e5, 5, 1e4, (1 - E1)*50)
     N[1] = calc_mixed_concentration(1e5, 5, 1e4, (1 - E1)*35)
     
+    # assuming 1 km step size
     for x = 1:(max_dist)
-        if x < 15
+        if x < 15 # before waste source 2
             C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x, C[1], B[1], N[1])
-        elseif x == 15
+        elseif x == 15 # at waste source 2
             C[16] = calc_mixed_concentration(1.1e5, C[15], 1.5e4, 5)
             B[16] = calc_mixed_concentration(1.1e5, B[15], 1.5e4, (1 - E2)*45)
             N[16] = calc_mixed_concentration(1.1e5, N[15], 1.5e4, (1 - E2)*35)
-        else
+        else # after waste source 2
             C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x - 15, C[16], B[16], N[16])
         end
     end
@@ -139,7 +142,7 @@ for i in 1:length(test_Es)
     DO_conc, _, _ = DO_simulation(test_Es[i], test_Es[i], 50)
     min_DO_conc[i] = minimum(DO_conc[16:51])
 end
-plot(test_Es, min_DO_conc, label=false, xlabel="WS 2 treatment level (% removal)", ylabel="Minimum DO concentration (mg/L)", linewidth=2);
+plot(test_Es, min_DO_conc, label=false, xlabel="WS 1 and 2 treatment level (% removal)", ylabel="Minimum DO concentration (mg/L)", linewidth=2);
 hline!([4.0], label="Target", linewidth=2)
 ```
 
@@ -260,11 +263,12 @@ This is a little bit higher than in the case where the CBOD and NBOD values are 
 
 Building some uncertainty about CBOD and NBOD concentrations in the river inflow into our model makes it clear that removing a minimum amount of organic waste is not an effective treatment plan;
 if we want a robust treatment plan, we should probably remove more than our original analysis suggested.
-Furthermore, if we know that the correlation between the CBOD and NBOD values is high, it might be another reason to choose the treatment plan in which we treat WS 1 and WS 2 equally:
-it would be better to treat both WS 1 and WS 2 if we know that it's possible for a high concentration of CBOD and NBOD in the natural inflow to push the DO concentration closer to 4 mg/L after WS 1.
+Furthermore, if we know that the correlation between the CBOD and NBOD values is high, it might be another reason to choose the treatment plan in which we treat WS 1 and WS 2 equally: 
+it's possible for a high concentration of both CBOD and NBOD in the natural inflow to push the DO concentration closer to 4 mg/L after WS 1.
 
 When deciding on a treatment plan, it would be helpful to know the distribution of possible CBOD and NBOD values.
 We assumed a uniform distribution, but if we knew some values in the range of all possible values were more likely than others, we could tailor our treatment plans accordingly.
 For example, if CBOD and NBOD values at the lower end of the possible ranges were more likely, we might decide to risk it and remove less organic waste, especially if treatment is expensive.
 
 # References
+I referenced Vivek's solution to the in-class wastewater treatment simulation exercise when writing the code for this assignment.
