@@ -17,7 +17,7 @@ Pkg.instantiate()
 ```
 
 ```julia
-using Plots
+using Plots, Distributions
 ```
 
 # Problem 1
@@ -147,21 +147,65 @@ Assuming that the treatment level is equal at both waste sources, the minimum pr
 
 ## Problem 1.5
 It's hard to say whether I'd treat only WS 2 or treat WS 1 and WS 2 equally without more information.
-On the one hand, it's the organic waste in WS 2 that pushes the DO concentration below the regulatory standard, so it might be easiest to treat only WS 2.
-On the other hand, it's a bit unfair to enforce regulations only on WS 2 because WS 2 is downstream from WS 1; if WS 2 were upstream, they might not push the DO level below 4 mg/L.
-I think for this reason, I'd decide to treat both waste streams equally.
+On the one hand, it's the organic waste in WS 2 that pushes the DO concentration below the regulatory standard, so it makes sense to treat only WS 2.
+On the other hand, it's a bit unfair to enforce regulations only on WS 2 because WS 2 is downstream from WS 1; if WS 2 were upstream, it might not push the DO level below 4 mg/L.
+I think that for this reason, I'd decide to treat both waste streams equally.
 
-In order to make a decision about a treatment plan, it might be helpful to have some information about the cost of treatment. 
-It might also be easier to remove a little bit of organic waste from both waste streams or remove more waste from only one stream, in which case I'd definitely opt for treating both waste streams equally.
+In order to make a better decision about a treatment plan, it would be helpful to have some information about the cost of treatment. 
+It might also be easier to remove a little bit of organic waste from both waste streams than to remove more waste from only one stream, in which case I'd definitely opt for treating both waste streams equally.
 
 ## Problem 1.6
+I adapted my `DO_simulation` code from above to account for uncertainty in the CBOD and NBOD concentrations in the natural river inflow.
+```julia
+function stochastic_DO_simulation1(E1 = 0, E2 = 0, max_dist = 50)
+    C = zeros(max_dist + 1)
+    B = zeros(max_dist + 1)
+    N = zeros(max_dist + 1)
+
+    C[1] = calc_mixed_concentration(1e5, 7.5, 1e4, 5)
+    B[1] = calc_mixed_concentration(1e5, rand(Uniform(4, 7)), 1e4, (1 - E1)*50)
+    N[1] = calc_mixed_concentration(1e5, rand(Uniform(3, 8)), 1e4, (1 - E1)*35)
+    
+    for x = 1:(max_dist)
+        if x < 15
+            C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x, C[1], B[1], N[1])
+        elseif x == 15
+            C[16] = calc_mixed_concentration(1.1e5, C[15], 1.5e4, 5)
+            B[16] = calc_mixed_concentration(1.1e5, B[15], 1.5e4, (1 - E2)*45)
+            N[16] = calc_mixed_concentration(1.1e5, N[15], 1.5e4, (1 - E2)*35)
+        else
+            C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x - 15, C[16], B[16], N[16])
+        end
+    end
+
+    return C, B, N
+end
+```
+If we run 1000 simulations where we remove 10% of the organic waste from both WS 1 and WS 2, we can get an idea of how well our treatment plan does at keeping the DO concentration at or above 4 mg/L.
+```julia
+min_DO_conc = zeros(1000);
+for n in 1:1000
+    DO_conc, CBOD_conc, NBOD_conc = stochastic_DO_simulation1(0.1, 0.1, 50)
+    min_DO_conc[n] = minimum(DO_conc)
+end
+```
+Based on the results of our simulation, we can conclude that removing 10% of the organic waste in both WS 1 and WS 2 will keep the DO concentration at or above 4 mg/L with probability approximately `j sum(min_DO_conc .>= 4.0)/1000`.
+```julia
+min_DO_conc = zeros(1000);
+for n in 1:1000
+    DO_conc, CBOD_conc, NBOD_conc = stochastic_DO_simulation1(0.2, 0.2, 50)
+    min_DO_conc[n] = minimum(DO_conc)
+end
+```
+If we remove double the amount of organic waste in each waste stream, we do much better;
+the DO concentration will be kept at or above 4 mg/L with probability `j sum(min_DO_conc .>= 4.0)/1000`.
 
 ## Problem 1.7
 
 ```julia; echo=false
 # This block will not show up in compiled output.
 
-using Distributions
+# using Distributions
 using PDMats
 
 # This function samples n correlated variates distributed over 
@@ -175,9 +219,52 @@ function sample_correlated_uniform(n, a, b, corr_coef=0.7)
   return samples
 end
 ```
+I again adapted my `DO_simulation` code to assume that CBOD and NBOD values are correlated uniform variates with correlation coefficient 0.7.
+```julia
+function stochastic_DO_simulation2(E1 = 0, E2 = 0, max_dist = 50)
+    C = zeros(max_dist + 1)
+    B = zeros(max_dist + 1)
+    N = zeros(max_dist + 1)
+
+    inflow_org_matter = sample_correlated_uniform(1, [4, 7], [3, 8], 0.7)
+
+    C[1] = calc_mixed_concentration(1e5, 7.5, 1e4, 5)
+    B[1] = calc_mixed_concentration(1e5, inflow_org_matter[1], 1e4, (1 - E1)*50)
+    N[1] = calc_mixed_concentration(1e5, inflow_org_matter[2], 1e4, (1 - E1)*35)
+    
+    for x = 1:(max_dist)
+        if x < 15
+            C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x, C[1], B[1], N[1])
+        elseif x == 15
+            C[16] = calc_mixed_concentration(1.1e5, C[15], 1.5e4, 5)
+            B[16] = calc_mixed_concentration(1.1e5, B[15], 1.5e4, (1 - E2)*45)
+            N[16] = calc_mixed_concentration(1.1e5, N[15], 1.5e4, (1 - E2)*35)
+        else
+            C[x + 1], B[x + 1], N[x + 1] = calc_concentrations(x - 15, C[16], B[16], N[16])
+        end
+    end
+
+    return C, B, N
+end
+
+min_DO_conc = zeros(1000);
+for n in 1:1000
+    DO_conc, CBOD_conc, NBOD_conc = stochastic_DO_simulation2(0.1, 0.1, 50)
+    min_DO_conc[n] = minimum(DO_conc)
+end
+```
+Based on 1000 simulation runs, the probability that removing 10% of organic waste from both WS 1 and WS 2 keeps the DO concentration at or above 4 mg/L is approximately `j sum(min_DO_conc .>= 4.0)/1000`.
+This is a little bit higher than in the case where the CBOD and NBOD values are not correlated, i.e., our treatment is a little bit more likely to be effective.
 
 ## Problem 1.8
 
-```
+Building some uncertainty about CBOD and NBOD concentrations in the river inflow into our model makes it clear that removing a minimum amount of organic waste is not an effective treatment plan;
+if we want a robust treatment plan, we should probably remove more than our original analysis suggested.
+Furthermore, if we know that the correlation between the CBOD and NBOD values is high, it might be another reason to choose the treatment plan in which we treat WS 1 and WS 2 equally:
+it would be better to treat both WS 1 and WS 2 if we know that it's possible for a high concentration of CBOD and NBOD in the natural inflow to push the DO concentration closer to 4 mg/L after WS 1.
+
+When deciding on a treatment plan, it would be helpful to know the distribution of possible CBOD and NBOD values.
+We assumed a uniform distribution, but if we knew some values in the range of all possible values were more likely than others, we could tailor our treatment plans accordingly.
+For example, if CBOD and NBOD values at the lower end of the possible ranges were more likely, we might decide to risk it and remove less organic waste, especially if treatment is expensive.
 
 # References
